@@ -4,9 +4,9 @@ import pandas as pd
 import io
 
 # --- الإعدادات الأساسية ---
-st.set_page_config(page_title="Trello Automation Pro", layout="wide")
+st.set_page_config(page_title="Trello Automation & Dashboard", layout="wide")
 
-# --- جلب البيانات الحساسة من Secrets (للأمان على GitHub) ---
+# --- جلب البيانات الحساسة من Secrets ---
 try:
     TRELLO_API_KEY = st.secrets["TRELLO_API_KEY"]
     TRELLO_TOKEN = st.secrets["TRELLO_TOKEN"]
@@ -50,19 +50,40 @@ class TrelloEngine:
 
 trello = TrelloEngine(TRELLO_API_KEY, TRELLO_TOKEN)
 
-st.title("🚀 Trello-Adib & Takka Automation")
+st.title("📊 Trello-Adib & Takka Dashboard")
 
 uploaded_file = st.file_uploader("ارفع ملف الإكسيل المحدث", type=["xlsx"])
 
 if uploaded_file:
-    # قراءة الملف مع التأكد من قراءة عمود الموبايل كنص
+    # قراءة الملف
     df = pd.read_excel(uploaded_file, dtype={'Mobile': str})
     if 'Automation_Status' not in df.columns: 
         df['Automation_Status'] = 'Pending'
 
-    if st.button("بدء المزامنة", type="primary"):
-        with st.spinner("جاري جلب البيانات والمعالجة..."):
-            # جلب البيانات الأساسية بفلترة لتقليل الحجم
+    # --- قسم الداش بورد الإحصائي ---
+    st.subheader("📈 ملخص بيانات الملف")
+    
+    total_cards = len(df)
+    adib_df = df[df['Product Name'].str.contains("Abu Dhabi Islamic Bank", na=False)]
+    adib_count = len(adib_df)
+    takka_count = total_cards - adib_count
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("إجمالي الحالات", total_cards)
+    col2.metric("حالات ADIB", adib_count)
+    col3.metric("حالات Takka", takka_count)
+
+    st.divider()
+    
+    # توزيع المناديب في الملف
+    if st.checkbox("إظهار تحليل توزيع المناديب"):
+        st.bar_chart(df['Courier'].value_counts())
+    
+    st.divider()
+
+    # --- بدء عملية المزامنة ---
+    if st.button("🚀 بدء المزامنة مع تريلو", type="primary"):
+        with st.spinner("جاري الاتصال بتريلو ومعالجة الكروت..."):
             cards_data = trello.get_data(f"boards/{BOARD_ID}/cards", {"fields": "name,idList,id"})
             lists_data = trello.get_data(f"boards/{BOARD_ID}/lists", {"fields": "name,id"})
             members_data = trello.get_data(f"boards/{BOARD_ID}/members", {"fields": "fullName,id"})
@@ -73,47 +94,55 @@ if uploaded_file:
                 member_map = {m['fullName'].strip(): m['id'] for m in members_data}
                 label_map = {lb.get('name','').strip(): lb['id'] for lb in labels_data}
 
+                # إضافة شريط تقدم مرئي
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
                 for index, row in df.iterrows():
+                    # تحديث شريط التقدم
+                    progress_val = (index + 1) / total_cards
+                    progress_bar.progress(progress_val)
+                    
                     if row['Automation_Status'] != 'Pending': continue
 
                     mobile = str(row['Mobile']).strip()
                     courier = str(row['Courier']).strip()
                     product = str(row['Product Name']).strip()
-
-                    # تحديد القائمة المصدر (القائمة الرئيسية للمشروع)
+                    
                     prefix = "Adib" if "Abu Dhabi Islamic Bank" in product else "Takka"
                     source_list_id = list_map.get(prefix)
 
                     if not source_list_id: continue
 
                     for card in cards_data:
-                        # البحث عن الكارت داخل القائمة المصدر فقط
                         if card['idList'] == source_list_id and mobile in card['name']:
-
-                            # 1. إسناد المندوب أو الليبل
+                            
+                            # 1. إسناد المندوب (Assign) أو الليبل
                             if courier == "Mohamed Bakry":
                                 if "Mohamed Bakry" in label_map:
                                     trello.add_to_card(card['id'], "label", label_map["Mohamed Bakry"])
                             else:
-                                # محاولة عمل Assign لكل المناديب الآخرين (بما فيهم أحمد سامي)
                                 trello_name = NAME_MAP.get(courier)
                                 if trello_name:
                                     m_id = member_map.get(trello_name.strip())
                                     if m_id: 
                                         trello.add_to_card(card['id'], "member", m_id)
 
-                            # 2. تحديد قائمة النقل (حمدي يروح HC والباقي Assigned)
+                            # 2. تحديد قائمة النقل
                             target_list_name = f"{prefix} HC" if courier == "Hamdy A.Khalek" else f"{prefix} Assigned"
 
-                            # 3. تنفيذ النقل وتحديث الحالة
+                            # 3. تنفيذ النقل
                             if target_list_name in list_map:
                                 trello.update_card(card['id'], {"idList": list_map[target_list_name]})
                                 df.at[index, 'Automation_Status'] = 'Done'
-                                st.write(f"✅ تم معالجة {row['Name']} وإسناده لـ {courier}")
+                                st.write(f"✅ تم نقل: {row['Name']} -> {target_list_name} ({courier})")
 
-                # تصدير ملف النتائج
+                # تصدير ملف النتائج بعد المزامنة
                 output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer: 
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df.to_excel(writer, index=False)
-                st.download_button("📥 تحميل التقرير النهائي", output.getvalue(), "Trello_Report.xlsx")
-                st.success("اكتملت العملية!")
+                
+                st.success("🏁 تم الانتهاء من جميع الكروت!")
+                st.download_button("📥 تحميل تقرير العمل النهائي", output.getvalue(), "Trello_Status_Report.xlsx")
+            else:
+                st.error("🛑 فشل في جلب البيانات من تريلو. تأكد من إعدادات الـ Secrets.")
