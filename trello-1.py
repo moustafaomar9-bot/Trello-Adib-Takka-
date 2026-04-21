@@ -27,7 +27,7 @@ NAME_MAP = {
     "Mohamed Khattab": "mohmed hasn", "Hamdy A.Khalek": "Hamdi Kaled",
     "Essam Ahmed": "Kimo Kimo", "Ashraf Mohamed": "Tefa Abdellatif",
     "Amr Mohamed": "abuzeidamro8", "Ahmed Hussien": "احمد حسين",
-    "Ahmed Amer": "Ahmad Amer", "Hassan Saleh": "Hassan Saleh",
+    "Ahmed Amer": "Ahmad Amer", "Hassan Saleh": "Hasan Saleh",
     "Ibrahim Azmy": "ابراهيم عزمي", "Sief Samy": "Sefi Jamica"
 }
 
