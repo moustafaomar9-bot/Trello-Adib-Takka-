@@ -23,7 +23,7 @@ NAME_MAP = {
     "Mahmoud Makhemar": "محمود مخيمر", "Ali Ramadan": "Ali Ramadan",
     "Mostafa Nubi": "Mustafa Noby", "Eslam Eid": "Eslam Eid",
     "Mohamed Mohamed": "Mohamed Bakry", "Ahmed Samy": "احمد سامي",
-    "Ashraf Ahmed": "Ashraf Abo hamza19", "Ali Mohamed": "Ali Weza",
+    "Ashraf Ahmed": "Ashraf Abo Hamza19", "Ali Mohamed": "Ali Weza",
     "Mohamed Khattab": "mohmed hasn", "Hamdy A.Khalek": "Hamdi Kaled",
     "Essam Ahmed": "Kimo Kimo", "Ashraf Mohamed": "Tefa Abdellatif",
     "Amr Mohamed": "abuzeidamro8", "Ahmed Hussien": "احمد حسين",
