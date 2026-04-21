@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import io
+import plotly.express as px  # إضافة مكتبة Plotly للرسوم الاحترافية
 
 # --- الإعدادات الأساسية ---
 st.set_page_config(page_title="Trello Automation & Dashboard", layout="wide")
@@ -60,7 +61,6 @@ if uploaded_file:
         df['Automation_Status'] = 'Pending'
 
     # --- تحسين منطق الفلترة لضمان الدقة ---
-    # نحدد بوضوح من هو أديب ومن هو تكة ومن هو "أخرى"
     is_adib = df['Product Name'].str.contains("Abu Dhabi Islamic Bank", na=False, case=False)
     is_takka = df['Product Name'].str.contains("Takka", na=False, case=False)
     is_other = ~(is_adib | is_takka)
@@ -75,9 +75,31 @@ if uploaded_file:
 
     st.divider()
     
-    if st.checkbox("إظهار تحليل توزيع المناديب (للمستهدفين فقط)"):
+    if st.checkbox("إظهار تحليل توزيع المناديب (بالأرقام)"):
         target_df = df[is_adib | is_takka]
-        st.bar_chart(target_df['Courier'].value_counts())
+        if not target_df.empty:
+            # تحضير بيانات الرسم البياني
+            counts = target_df['Courier'].value_counts().reset_index()
+            counts.columns = ['المندوب', 'عدد الحالات']
+            
+            # إنشاء الرسم البياني باستخدام Plotly
+            fig = px.bar(
+                counts, 
+                x='المندوب', 
+                y='عدد الحالات',
+                text='عدد الحالات', # هذا السطر هو المسؤول عن إظهار الأرقام
+                title="توزيع الحالات على المناديب",
+                color='عدد الحالات',
+                color_continuous_scale='Blues'
+            )
+            
+            # تحسين شكل الأرقام ومكانها
+            fig.update_traces(textposition='outside')
+            fig.update_layout(xaxis_tickangle=-45)
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("لا توجد حالات لأديب أو تكة لعرضها في الرسم البياني.")
     
     st.divider()
 
@@ -98,7 +120,6 @@ if uploaded_file:
                 for index, row in df.iterrows():
                     progress_bar.progress((index + 1) / len(df))
                     
-                    # تخطي الحالات التي ليست أديب وليست تكة، أو التي تمت معالجتها
                     if is_other[index] or row['Automation_Status'] != 'Pending':
                         continue
 
@@ -106,7 +127,6 @@ if uploaded_file:
                     courier = str(row['Courier']).strip()
                     product = str(row['Product Name']).strip()
                     
-                    # تحديد الـ Prefix بناءً على الفلترة الدقيقة
                     prefix = "Adib" if is_adib[index] else "Takka"
                     source_list_id = list_map.get(prefix)
 
@@ -114,7 +134,6 @@ if uploaded_file:
 
                     for card in cards_data:
                         if card['idList'] == source_list_id and mobile in card['name']:
-                            # 1. إسناد المندوب (Assign) أو الليبل
                             if courier == "Mohamed Bakry":
                                 if "Mohamed Bakry" in label_map:
                                     trello.add_to_card(card['id'], "label", label_map["Mohamed Bakry"])
@@ -125,10 +144,8 @@ if uploaded_file:
                                     if m_id: 
                                         trello.add_to_card(card['id'], "member", m_id)
 
-                            # 2. تحديد قائمة النقل وتفادي الخطأ في أسماء القوائم
                             target_list_name = f"{prefix} HC" if courier == "Hamdy A.Khalek" else f"{prefix} Assigned"
 
-                            # 3. تنفيذ النقل وتحديث الإكسيل
                             if target_list_name in list_map:
                                 trello.update_card(card['id'], {"idList": list_map[target_list_name]})
                                 df.at[index, 'Automation_Status'] = 'Done'
