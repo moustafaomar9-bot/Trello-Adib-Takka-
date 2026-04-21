@@ -6,15 +6,16 @@ import io
 # --- الإعدادات الأساسية ---
 st.set_page_config(page_title="Trello Automation & Dashboard", layout="wide")
 
-# --- جلب البيانات من Secrets ---
+# --- جلب البيانات الحساسة من Secrets ---
 try:
     TRELLO_API_KEY = st.secrets["TRELLO_API_KEY"]
     TRELLO_TOKEN = st.secrets["TRELLO_TOKEN"]
     BOARD_ID = st.secrets["BOARD_ID"]
 except KeyError:
-    st.error("🛑 المفاتيح غير موجودة في Secrets.")
+    st.error("🛑 لم يتم العثور على المفاتيح في Secrets. يرجى إضافتها في إعدادات Streamlit Cloud.")
     st.stop()
 
+# خريطة المناديب
 NAME_MAP = {
     "Mohamed Khamis": "Walid Altaher", "Abdel Aal": "Alaa Abd elaal",
     "Attia Kamal": "Attie Kamal", "Sherif Mohamed": "Sherif Mohamed",
@@ -51,30 +52,37 @@ trello = TrelloEngine(TRELLO_API_KEY, TRELLO_TOKEN)
 
 st.title("📊 Trello-Adib & Takka Dashboard")
 
-uploaded_file = st.file_uploader("ارفع ملف الإكسيل", type=["xlsx"])
+uploaded_file = st.file_uploader("ارفع ملف الإكسيل المحدث", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file, dtype={'Mobile': str})
     if 'Automation_Status' not in df.columns: 
         df['Automation_Status'] = 'Pending'
 
-    # --- المنطق الجديد للفلترة (بناءً على ملاحظتك) ---
-    adib_mask = df['Product Name'].str.contains("Abu Dhabi Islamic Bank", na=False, case=False)
-    takka_mask = df['Product Name'].str.contains("Takka", na=False, case=False)
-    others_mask = ~(adib_mask | takka_mask) # أي شيء ليس أديب وليس تكة
+    # --- تحسين منطق الفلترة لضمان الدقة ---
+    # نحدد بوضوح من هو أديب ومن هو تكة ومن هو "أخرى"
+    is_adib = df['Product Name'].str.contains("Abu Dhabi Islamic Bank", na=False, case=False)
+    is_takka = df['Product Name'].str.contains("Takka", na=False, case=False)
+    is_other = ~(is_adib | is_takka)
 
-    st.subheader("📈 ملخص دقيق لبيانات الملف")
+    st.subheader("📈 ملخص بيانات الملف (دقيق)")
     col1, col2, col3, col4 = st.columns(4)
     
     col1.metric("إجمالي الشيت", len(df))
-    col2.metric("حالات ADIB", adib_mask.sum())
-    col3.metric("حالات Takka", takka_mask.sum())
-    col4.metric("عناصر أخرى (تجاهل)", others_mask.sum())
+    col2.metric("حالات ADIB", is_adib.sum())
+    col3.metric("حالات Takka", is_takka.sum())
+    col4.metric("حالات أخرى (تجاهل)", is_other.sum(), delta_color="normal")
 
+    st.divider()
+    
+    if st.checkbox("إظهار تحليل توزيع المناديب (للمستهدفين فقط)"):
+        target_df = df[is_adib | is_takka]
+        st.bar_chart(target_df['Courier'].value_counts())
+    
     st.divider()
 
     if st.button("🚀 بدء المزامنة (أديب وتكة فقط)", type="primary"):
-        with st.spinner("جاري المعالجة..."):
+        with st.spinner("جاري الاتصال بتريلو ومعالجة الكروت..."):
             cards_data = trello.get_data(f"boards/{BOARD_ID}/cards", {"fields": "name,idList,id"})
             lists_data = trello.get_data(f"boards/{BOARD_ID}/lists", {"fields": "name,id"})
             members_data = trello.get_data(f"boards/{BOARD_ID}/members", {"fields": "fullName,id"})
@@ -86,25 +94,27 @@ if uploaded_file:
                 label_map = {lb.get('name','').strip(): lb['id'] for lb in labels_data}
 
                 progress_bar = st.progress(0)
+                
                 for index, row in df.iterrows():
                     progress_bar.progress((index + 1) / len(df))
                     
-                    # تخطي أي صف ليس أديب وليس تكة
-                    if others_mask[index] or row['Automation_Status'] != 'Pending':
+                    # تخطي الحالات التي ليست أديب وليست تكة، أو التي تمت معالجتها
+                    if is_other[index] or row['Automation_Status'] != 'Pending':
                         continue
 
                     mobile = str(row['Mobile']).strip()
                     courier = str(row['Courier']).strip()
                     product = str(row['Product Name']).strip()
                     
-                    prefix = "Adib" if adib_mask[index] else "Takka"
+                    # تحديد الـ Prefix بناءً على الفلترة الدقيقة
+                    prefix = "Adib" if is_adib[index] else "Takka"
                     source_list_id = list_map.get(prefix)
 
                     if not source_list_id: continue
 
                     for card in cards_data:
                         if card['idList'] == source_list_id and mobile in card['name']:
-                            # الإسناد
+                            # 1. إسناد المندوب (Assign) أو الليبل
                             if courier == "Mohamed Bakry":
                                 if "Mohamed Bakry" in label_map:
                                     trello.add_to_card(card['id'], "label", label_map["Mohamed Bakry"])
@@ -112,17 +122,23 @@ if uploaded_file:
                                 trello_name = NAME_MAP.get(courier)
                                 if trello_name:
                                     m_id = member_map.get(trello_name.strip())
-                                    if m_id: trello.add_to_card(card['id'], "member", m_id)
+                                    if m_id: 
+                                        trello.add_to_card(card['id'], "member", m_id)
 
-                            # النقل
+                            # 2. تحديد قائمة النقل وتفادي الخطأ في أسماء القوائم
                             target_list_name = f"{prefix} HC" if courier == "Hamdy A.Khalek" else f"{prefix} Assigned"
+
+                            # 3. تنفيذ النقل وتحديث الإكسيل
                             if target_list_name in list_map:
                                 trello.update_card(card['id'], {"idList": list_map[target_list_name]})
                                 df.at[index, 'Automation_Status'] = 'Done'
                                 st.write(f"✅ تم معالجة: {row['Name']} ({prefix})")
 
-                st.success("🏁 اكتملت المعالجة للمشاريع المستهدفة فقط.")
+                st.success("🏁 اكتملت المزامنة للمشاريع المطلوبة فقط!")
+                
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df.to_excel(writer, index=False)
-                st.download_button("📥 تحميل التقرير", output.getvalue(), "Trello_Report.xlsx")
+                st.download_button("📥 تحميل تقرير العمل النهائي", output.getvalue(), "Trello_Status_Report.xlsx")
+            else:
+                st.error("🛑 فشل في الاتصال بتريلو.")
