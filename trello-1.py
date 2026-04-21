@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import io
-import plotly.express as px  # إضافة مكتبة Plotly للرسوم الاحترافية
+import plotly.express as px
 
 # --- الإعدادات الأساسية ---
 st.set_page_config(page_title="Trello Automation & Dashboard", layout="wide")
@@ -16,7 +16,7 @@ except KeyError:
     st.error("🛑 لم يتم العثور على المفاتيح في Secrets. يرجى إضافتها في إعدادات Streamlit Cloud.")
     st.stop()
 
-# خريطة المناديب
+# خريطة المناديب (الاسم في الإكسيل : الاسم في تريلو)
 NAME_MAP = {
     "Mohamed Khamis": "Walid Altaher", "Abdel Aal": "Alaa Abd elaal",
     "Attia Kamal": "Attie Kamal", "Sherif Mohamed": "Sherif Mohamed",
@@ -78,32 +78,27 @@ if uploaded_file:
     if st.checkbox("إظهار تحليل توزيع المناديب (بالأرقام)"):
         target_df = df[is_adib | is_takka]
         if not target_df.empty:
-            # تحضير بيانات الرسم البياني
             counts = target_df['Courier'].value_counts().reset_index()
             counts.columns = ['المندوب', 'عدد الحالات']
             
-            # إنشاء الرسم البياني باستخدام Plotly
             fig = px.bar(
                 counts, 
                 x='المندوب', 
                 y='عدد الحالات',
-                text='عدد الحالات', # هذا السطر هو المسؤول عن إظهار الأرقام
+                text='عدد الحالات',
                 title="توزيع الحالات على المناديب",
                 color='عدد الحالات',
                 color_continuous_scale='Blues'
             )
-            
-            # تحسين شكل الأرقام ومكانها
             fig.update_traces(textposition='outside')
             fig.update_layout(xaxis_tickangle=-45)
-            
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("لا توجد حالات لأديب أو تكة لعرضها في الرسم البياني.")
+            st.warning("لا توجد حالات لأديب أو تكة لعرضها.")
     
     st.divider()
 
-    if st.button("🚀 بدء المزامنة (أديب وتكة فقط)", type="primary"):
+    if st.button("🚀 بدء المزامنة الآمنة (نقل عند نجاح الإسناد فقط)", type="primary"):
         with st.spinner("جاري الاتصال بتريلو ومعالجة الكروت..."):
             cards_data = trello.get_data(f"boards/{BOARD_ID}/cards", {"fields": "name,idList,id"})
             lists_data = trello.get_data(f"boards/{BOARD_ID}/lists", {"fields": "name,id"})
@@ -134,28 +129,38 @@ if uploaded_file:
 
                     for card in cards_data:
                         if card['idList'] == source_list_id and mobile in card['name']:
+                            
+                            # --- منطق الإسناد المشروط (الأمان الجديد) ---
+                            assign_success = False
+                            
                             if courier == "Mohamed Bakry":
                                 if "Mohamed Bakry" in label_map:
                                     trello.add_to_card(card['id'], "label", label_map["Mohamed Bakry"])
+                                    assign_success = True
                             else:
                                 trello_name = NAME_MAP.get(courier)
                                 if trello_name:
                                     m_id = member_map.get(trello_name.strip())
                                     if m_id: 
                                         trello.add_to_card(card['id'], "member", m_id)
+                                        assign_success = True
 
-                            target_list_name = f"{prefix} HC" if courier == "Hamdy A.Khalek" else f"{prefix} Assigned"
+                            # --- النقل يحدث فقط إذا تم الإسناد بنجاح ---
+                            if assign_success:
+                                target_list_name = f"{prefix} HC" if courier == "Hamdy A.Khalek" else f"{prefix} Assigned"
+                                if target_list_name in list_map:
+                                    trello.update_card(card['id'], {"idList": list_map[target_list_name]})
+                                    df.at[index, 'Automation_Status'] = 'Done'
+                                    st.write(f"✅ تم إسناد ونقل: {row['Name']} ({prefix})")
+                            else:
+                                df.at[index, 'Automation_Status'] = 'Failed: Courier Not Found'
+                                st.error(f"⚠️ لم يتم نقل {row['Name']}: المندوب '{courier}' غير موجود في خريطة المناديب.")
 
-                            if target_list_name in list_map:
-                                trello.update_card(card['id'], {"idList": list_map[target_list_name]})
-                                df.at[index, 'Automation_Status'] = 'Done'
-                                st.write(f"✅ تم معالجة: {row['Name']} ({prefix})")
-
-                st.success("🏁 اكتملت المزامنة للمشاريع المطلوبة فقط!")
+                st.success("🏁 اكتملت المزامنة!")
                 
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df.to_excel(writer, index=False)
-                st.download_button("📥 تحميل تقرير العمل النهائي", output.getvalue(), "Trello_Status_Report.xlsx")
+                st.download_button("📥 تحميل التقرير النهائي", output.getvalue(), "Trello_Status_Report.xlsx")
             else:
                 st.error("🛑 فشل في الاتصال بتريلو.")
