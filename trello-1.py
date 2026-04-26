@@ -14,10 +14,10 @@ try:
     TRELLO_TOKEN = st.secrets["TRELLO_TOKEN"]
     BOARD_ID = st.secrets["BOARD_ID"]
 except KeyError:
-    st.error("🛑 لم يتم العثور على المفاتيح في Secrets. يرجى إضافتها في إعدادات Streamlit Cloud.")
+    st.error("🛑 لم يتم العثور على المفاتيح في Secrets.")
     st.stop()
 
-# خريطة المناديب (الاسم في الإكسيل : الاسم في تريلو)
+# خريطة المناديب
 NAME_MAP = {
     "Mohamed Khamis": "Walid Altaher", "Abdel Aaal": "Alaa Abd elaal",
     "Attia Kamal": "Attie Kamal", "Sherif Mohamed": "Sherif Mohamed",
@@ -56,7 +56,7 @@ class TrelloEngine:
 
 trello = TrelloEngine(TRELLO_API_KEY, TRELLO_TOKEN)
 
-st.title("📊 Trello Automation (Primary + Extended Search)")
+st.title("📊 Trello Smart Automation & Dashboard")
 
 uploaded_file = st.file_uploader("ارفع ملف الإكسيل المحدث", type=["xlsx"])
 
@@ -69,9 +69,24 @@ if uploaded_file:
     is_takka = df['Product Name'].str.contains("Takka", na=False, case=False)
     is_other = ~(is_adib | is_takka)
 
+    # --- الداشبورد ---
+    st.subheader("📈 ملخص البيانات")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("إجمالي الملف", len(df))
+    c2.metric("ADIB", is_adib.sum())
+    c3.metric("Takka", is_takka.sum())
+    c4.metric("تجاهل", is_other.sum())
+
+    if st.checkbox("إظهار توزيع المناديب"):
+        counts = df[is_adib | is_takka]['Courier'].value_counts().reset_index()
+        counts.columns = ['المندوب', 'الحالات']
+        st.plotly_chart(px.bar(counts, x='المندوب', y='الحالات', text='الحالات', color='الحالات'), use_container_width=True)
+
+    st.divider()
+
     if st.button("🚀 بدء المزامنة الذكية", type="primary"):
-        with st.spinner("جاري فحص القوائم والمعالجة..."):
-            cards_data = trello.get_data(f"boards/{BOARD_ID}/cards", {"fields": "name,idList,id,idMembers,idLabels"})
+        with st.spinner("جاري معالجة البيانات..."):
+            cards_data = trello.get_data(f"boards/{BOARD_ID}/cards", {"fields": "name,idList,id,idMembers,idLabels,due"})
             lists_data = trello.get_data(f"boards/{BOARD_ID}/lists", {"fields": "name,id"})
             members_data = trello.get_data(f"boards/{BOARD_ID}/members", {"fields": "fullName,id"})
             labels_data = trello.get_data(f"boards/{BOARD_ID}/labels", {"fields": "name,id"})
@@ -80,8 +95,10 @@ if uploaded_file:
                 list_map = {l['name'].strip(): l['id'] for l in lists_data}
                 member_map = {m['fullName'].strip(): m['id'] for m in members_data}
                 label_map = {lb.get('name','').strip(): lb['id'] for lb in labels_data}
+                hajar_id = next((m['id'] for m in members_data if "Hajar Mostafa" in m['fullName']), None)
 
-                today_date = datetime.now().isoformat()
+                today_date_str = datetime.now().strftime('%Y-%m-%d')
+                today_iso = datetime.now().date().isoformat()
                 progress_bar = st.progress(0)
                 
                 for index, row in df.iterrows():
@@ -92,67 +109,73 @@ if uploaded_file:
                     courier = str(row['Courier']).strip()
                     prefix = "Adib" if is_adib[index] else "Takka"
                     
-                    # 1. تحديد الليست الأساسية
                     primary_list_id = list_map.get(prefix)
-                    
-                    # 2. تحديد الليستات الإضافية للبحث
-                    other_list_names = [
-                        f"{prefix} Assigned", f"Done ({prefix})", 
-                        f"No Answer {prefix}", f"{prefix} HC"
-                    ]
-                    other_list_ids = [list_map.get(name) for name in other_list_names if list_map.get(name)]
+                    target_list_name = f"{prefix} HC" if courier == "Hamdy A.Khalek" else f"{prefix} Assigned"
+                    target_list_id = list_map.get(target_list_name)
+
+                    other_list_names = [f"{prefix} Assigned", f"Done ({prefix})", f"No Answer {prefix}", f"{prefix} HC"]
+                    other_list_ids = [list_map.get(n) for n in other_list_names if list_map.get(n)]
 
                     for card in cards_data:
-                        found_in_primary = (card['idList'] == primary_list_id)
-                        found_in_others = (card['idList'] in other_list_ids)
+                        if mobile in card['name']:
+                            in_primary = (card['idList'] == primary_list_id)
+                            in_others = (card['idList'] in other_list_ids)
 
-                        if (found_in_primary or found_in_others) and mobile in card['name']:
-                            
-                            # --- منطق التنظيف (فقط لو الكارت في الليستات الإضافية/القديمة) ---
-                            if found_in_others:
+                            if in_primary:
+                                # --- منطق الليست الأساسية: إسناد ونقل مباشر ---
+                                assign_ok = False
+                                if courier == "Mohamed Bakry" and "Mohamed Bakry" in label_map:
+                                    trello.add_to_card(card['id'], "label", label_map["Mohamed Bakry"])
+                                    assign_ok = True
+                                else:
+                                    m_id = member_map.get(NAME_MAP.get(courier))
+                                    if m_id:
+                                        trello.add_to_card(card['id'], "member", m_id)
+                                        assign_ok = True
+                                
+                                if assign_ok:
+                                    trello.update_card(card['id'], {"idList": target_list_id})
+                                    df.at[index, 'Automation_Status'] = 'Done (New)'
+                                    st.write(f"🆕 كارت جديد: {row['Name']}")
+                                break
+
+                            elif in_others:
+                                # --- منطق باقي القوائم: التدقيق والتحديث ---
+                                card_due = card.get('due', '')[:10] if card.get('due') else ""
+                                t_name = NAME_MAP.get(courier)
+                                t_member_id = member_map.get(t_name) if t_name else None
+                                
+                                is_correct_member = (t_member_id in card.get('idMembers', [])) if t_member_id else False
+                                if courier == "Mohamed Bakry":
+                                    is_correct_member = label_map.get("Mohamed Bakry") in card.get('idLabels', [])
+                                
+                                # الشرط: لو كل شيء صح (مندوب + لستة + تاريخ) -> تجاهل
+                                if is_correct_member and (card['idList'] == target_list_id) and (card_due == today_date_str):
+                                    df.at[index, 'Automation_Status'] = 'Already Correct'
+                                    break
+                                
+                                # تنفيذ التحديث للمرتجعات
                                 for m_id in card.get('idMembers', []):
-                                    trello.remove_from_card(card['id'], "member", m_id)
+                                    if m_id != hajar_id: trello.remove_from_card(card['id'], "member", m_id)
                                 for l_id in card.get('idLabels', []):
                                     trello.remove_from_card(card['id'], "label", l_id)
 
-                            # --- منطق الإسناد الجديد ---
-                            assign_success = False
-                            if courier == "Mohamed Bakry":
-                                if "Mohamed Bakry" in label_map:
+                                assign_ok = False
+                                if courier == "Mohamed Bakry" and "Mohamed Bakry" in label_map:
                                     trello.add_to_card(card['id'], "label", label_map["Mohamed Bakry"])
-                                    assign_success = True
-                            else:
-                                trello_name = NAME_MAP.get(courier)
-                                if trello_name:
-                                    m_id = member_map.get(trello_name.strip())
-                                    if m_id: 
-                                        trello.add_to_card(card['id'], "member", m_id)
-                                        assign_success = True
-
-                            # --- النقل وتحديث الحالة ---
-                            if assign_success:
-                                target_list_name = f"{prefix} HC" if courier == "Hamdy A.Khalek" else f"{prefix} Assigned"
-                                if target_list_name in list_map:
-                                    payload = {"idList": list_map[target_list_name]}
-                                    
-                                    # تحديث التاريخ فقط إذا كان الكارت قادماً من القوائم الإضافية
-                                    if found_in_others:
-                                        payload["due"] = today_date
-                                    
-                                    trello.update_card(card['id'], payload)
-                                    df.at[index, 'Automation_Status'] = 'Done'
-                                    status_msg = "تحديث حالة قديمة" if found_in_others else "إسناد جديد"
-                                    st.write(f"✅ {status_msg}: {row['Name']} ({prefix})")
-                                    break 
-                            else:
-                                df.at[index, 'Automation_Status'] = 'Failed: Courier Not Found'
-                                st.error(f"⚠️ {row['Name']}: المندوب غير موجود في NAME_MAP.")
+                                    assign_ok = True
+                                elif t_member_id:
+                                    trello.add_to_card(card['id'], "member", t_member_id)
+                                    assign_ok = True
+                                
+                                if assign_ok:
+                                    trello.update_card(card['id'], {"idList": target_list_id, "due": today_iso})
+                                    df.at[index, 'Automation_Status'] = 'Updated (Return)'
+                                    st.write(f"🔄 تحديث مرتجع: {row['Name']}")
                                 break
 
-                st.success("🏁 اكتملت المعالجة بنجاح!")
+                st.success("🏁 اكتملت المزامنة!")
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df.to_excel(writer, index=False)
-                st.download_button("📥 تحميل التقرير النهائي", output.getvalue(), "Trello_Final_Report.xlsx")
-            else:
-                st.error("🛑 فشل في الاتصال بتريلو أو جلب القوائم.")
+                st.download_button("📥 تحميل التقرير", output.getvalue(), "Trello_Status_Report.xlsx")
