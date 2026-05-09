@@ -19,7 +19,7 @@ except KeyError:
 
 # خريطة المناديب
 NAME_MAP = {
-    "Mohamed Khamis": "Walid Altaher", "Abdel Aaal": "Alaa Abd elaal",
+    "Mohamed Khamis": "Walid Altaher","Mohamed Awad": "محمد عوض", "Abdel Aaal": "Alaa Abd elaal",
     "Attia Kamal": "Attie Kamal", "Sherif Mohamed": "Sherif Mohamed",
     "Mahmoud Makhemar": "محمود مخيمر", "Ali Ramadan": "Ali Ramadan",
     "Mostafa Nubi": "Mustafa Noby", "Eslam Eid": "Eslam Eid",
