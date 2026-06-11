@@ -65,20 +65,26 @@ if uploaded_file:
     if 'Automation_Status' not in df.columns: 
         df['Automation_Status'] = 'Pending'
 
+    # --- تعريف المشاريع ---
     is_adib = df['Product Name'].str.contains("Abu Dhabi Islamic Bank", na=False, case=False)
     is_takka = df['Product Name'].str.contains("Takka", na=False, case=False)
-    is_other = ~(is_adib | is_takka)
+    is_espresso = df['Product Name'].str.contains("Espresso Lab", na=False, case=False) 
+    
+    # الحالات الصالحة للمزامنة
+    is_valid_project = is_adib | is_takka | is_espresso
+    is_other = ~is_valid_project
 
     # --- الداشبورد ---
     st.subheader("📈 ملخص البيانات")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("إجمالي الملف", len(df))
     c2.metric("ADIB", is_adib.sum())
     c3.metric("Takka", is_takka.sum())
-    c4.metric("تجاهل", is_other.sum())
+    c4.metric("Espresso Lab", is_espresso.sum()) # عداد المشروع الجديد
+    c5.metric("تجاهل", is_other.sum())
 
     if st.checkbox("إظهار توزيع المناديب"):
-        counts = df[is_adib | is_takka]['Courier'].value_counts().reset_index()
+        counts = df[is_valid_project]['Courier'].value_counts().reset_index()
         counts.columns = ['المندوب', 'الحالات']
         st.plotly_chart(px.bar(counts, x='المندوب', y='الحالات', text='الحالات', color='الحالات'), use_container_width=True)
 
@@ -107,7 +113,14 @@ if uploaded_file:
 
                     mobile = str(row['Mobile']).strip()
                     courier = str(row['Courier']).strip()
-                    prefix = "Adib" if is_adib[index] else "Takka"
+                    
+                    # تحديد الـ Prefix ديناميكيًا بناءً على نوع المشروع
+                    if is_adib[index]:
+                        prefix = "Adib"
+                    elif is_takka[index]:
+                        prefix = "Takka"
+                    elif is_espresso[index]:
+                        prefix = "Espresso Lab"
                     
                     primary_list_id = list_map.get(prefix)
                     target_list_name = f"{prefix} HC" if courier == "Hamdy A.Khalek" else f"{prefix} Assigned"
@@ -136,7 +149,7 @@ if uploaded_file:
                                 if assign_ok:
                                     trello.update_card(card['id'], {"idList": target_list_id})
                                     df.at[index, 'Automation_Status'] = 'Done (New)'
-                                    st.write(f"🆕 كارت جديد: {row['Name']}")
+                                    st.write(f"🆕 كارت جديد ({prefix}): {row['Name']}")
                                 break
 
                             elif in_others:
@@ -171,7 +184,7 @@ if uploaded_file:
                                 if assign_ok:
                                     trello.update_card(card['id'], {"idList": target_list_id, "due": today_iso})
                                     df.at[index, 'Automation_Status'] = 'Updated (Return)'
-                                    st.write(f"🔄 تحديث مرتجع: {row['Name']}")
+                                    st.write(f"🔄 تحديث مرتجع ({prefix}): {row['Name']}")
                                 break
 
                 st.success("🏁 اكتملت المزامنة!")
