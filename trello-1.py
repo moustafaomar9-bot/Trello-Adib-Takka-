@@ -29,7 +29,7 @@ NAME_MAP = {
     "Essam Ahmed": "Kimo Kimo", "Ashraf Mohamed": "Tefa Abdellatif",
     "Amr Mohamed": "abuzeidamro8", "Ahmed Hussien": "احمد حسين",
     "Ahmed Amer": "Ahmad Amer", "Hassan Saleh": "Hasan Saleh",
-    "Ibrahim Azmy": "ابراهيم عزمي", "Sief Samy": "Sefi Jamica"
+    "Ibrahim Azmy": "ابراهيم عزمي", "Sief Samy": "Sefi Jamica, "Ahmed Soliman": "Ahmed Mohmamed"
 }
 
 class TrelloEngine:
