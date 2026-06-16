@@ -31,7 +31,6 @@ NAME_MAP = {
     "Ahmed Amer": "Ahmad Amer", "Hassan Saleh": "Hasan Saleh",
     "Ibrahim Azmy": "ابراهيم عزمي", "Sief Samy": "Sefi Jamica, "Ahmed Soliman": "Ahmed Mohmamed"
 }
-
 class TrelloEngine:
     def __init__(self, api_key, token):
         self.params = {"key": api_key, "token": token}
